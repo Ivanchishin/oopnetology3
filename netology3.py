@@ -2,36 +2,48 @@ import requests
 import tqdm
 import json
 import os
+import datetime
+import configparser
 
+class Vkphoto:
 
-class Savephoto:
-
-    def __init__(self, user_id, yatoken):
-        self.token = 'PUT VK ACCESS TOKEN HERE'
+    def __init__(self, token, user_id):
+        self.token = token
         self.id = user_id
         self.version = '5.199'
         self.params = {'access_token': self.token, 'v': self.version}
-        self.yatoken = yatoken
-        self.headers = {'Content-Type': 'application/json',
-                        'Accept': 'application/json',
-                        'Authorization': f'OAuth {self.yatoken}'}
         self.path = {'path': 'photos'}
 
-    def photo_get(self, album='profile', count='5'):
+    def getuser(self):
+        urluser = 'https://api.vk.com/method/users.get'
+        params = {'user_ids':self.id}
+        response = requests.get(urluser, params={**self.params, **params})
+        try:
+            answer = response.json()['response'][0]['id']
+        except:
+            answer = 'Не удалось получить ID пользователя'
+        return answer
+
+    def photo_get(self, count, album='profile'):
         self.album = album
         self.count = count
         result = []
         url = 'https://api.vk.com/method/photos.get'
-        params = {'owner_id': self.id, 'album_id': self.album,
+        params = {'owner_id': self.getuser(), 'album_id': self.album,
                   'extended': '1', 'count': f'{count}'}
         response = requests.get(url, params={**self.params, **params})
         answer = response.json()
-
+        likercount = []
         for answ in answer['response']['items']:
             likesnum = answ['likes']['count']
             resulting = {'photoname': '', 'size': '', 'url': ''}
             datephoto = answ['date']
-            namephoto = str(datephoto) + '_' + str(likesnum)
+            if likesnum in likercount:
+                namephoto = str(likesnum) + '_' + \
+                            str(datetime.datetime.fromtimestamp(datephoto))
+            else:
+                namephoto = str(likesnum)
+            likercount.append(likesnum)
             ir = 0
             for sizes in answ['sizes']:
                 if sizes['height'] + sizes['width'] > ir:
@@ -43,6 +55,17 @@ class Savephoto:
             resulting['url'] = url
             result.append(resulting)
         return result
+
+class Savephoto:
+
+    def __init__(self, yatoken, photoset):
+        self.yatoken = yatoken
+        self.photoset = photoset
+        self.headers = {'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'Authorization': f'OAuth {self.yatoken}'}
+        self.path = {'path': 'photos'}
+
 
     def createfolder(self):
         url = 'https://cloud-api.yandex.net/v1/disk/resources'
@@ -61,7 +84,7 @@ class Savephoto:
         filejson = []
         z = 0
         self.pbar = tqdm.tqdm(range(15), ncols=100, position=0, leave=True)
-        for i in self.photo_get():
+        for i in self.photoset:
             dictjson = {'filename': '', 'size': ''}
             parametrs = {'url': f'{i["url"]}',
                          'path': f'disk:/photos/{i["photoname"]}'}
@@ -88,7 +111,16 @@ class Savephoto:
 
 
 if __name__ == '__main__':
-    yatoken = input('Введите свой токен от Яндекс Полигона\n')
-    user_id = input('Введите свой ID Вконтакте\n')
-    a = Savephoto(user_id, yatoken)
-    a.initiatesaving()
+    config = configparser.ConfigParser()
+    config.read("settings.ini")
+    yatoken = config['Tokens']['yatoken']
+    vktoken = config['Tokens']['vktoken']
+
+    user_id = input('Введите свой ID или имя аккаунта Вконтакте\n')
+    count = input('Введите количество фото для выгрузки\n')
+
+    VK = Vkphoto(vktoken, user_id)
+    photoset = VK.photo_get(count=count)
+
+    ya = Savephoto(yatoken, photoset)
+    ya.initiatesaving()
